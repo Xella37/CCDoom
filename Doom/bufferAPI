@@ -1,0 +1,353 @@
+
+-- Made by Xelostar: https://www.youtube.com/channel/UCDE2STpSWJrIUyKtiYGeWxw
+
+local screenBuffer = {}
+
+local colorChar = {}
+for i = 1, 16 do
+	colorChar[2 ^ (i - 1)] = ("0123456789abcdef"):sub(i, i)
+end
+
+local function round(number)
+	return math.floor(number + 0.5)
+end
+
+local function linear(x1, y1, x2, y2)
+	local dy = y2 - y1
+	local dx = x2 - x1
+
+	local a = 10 ^ 99
+	if (dx ~= 0) then
+		a = dy / dx
+	end
+	local b = y1 - a * x1
+
+	return a, b
+end
+
+function newBuffer(x1, y1, x2, y2)
+	local buffer = {x1 = x1, y1 = y1, x2 = x2, y2 = y2, screenBuffer = {{}}}
+
+	function buffer:setBufferSize(x1, y1, x2, y2)
+		buffer.x1 = x1
+		buffer.y1 = y1
+
+		buffer.x2 = x2
+		buffer.y2 = y2
+
+		buffer:clear(colors.white)
+	end
+
+	function buffer:clear(color)
+		for x = 1, buffer.x2 - buffer.x1 + 1 do
+			buffer.screenBuffer[x] = {}
+			for y = 1, buffer.y2 - buffer.y1 + 1 do
+				buffer.screenBuffer[x][y] = {c1 = color, c2 = color, char = " "}
+			end
+		end
+	end
+
+	function buffer:setPixel(x, y, c1, c2, char)
+		local x = round(x)
+		local y = round(y)
+
+		if (x >= 1 and x <= (buffer.x2 - buffer.x1 + 1)) then
+			if (y >= 1 and y <= (buffer.y2 - buffer.y1 + 1)) then
+				local newPixel = {c1 = c1, c2 = c2, char = char}
+				buffer.screenBuffer[x][y] = newPixel
+			end
+		end
+	end
+
+	function buffer:write(x, y, c1, c2, string)
+		local charNr = 0
+		for char in string:gmatch(".") do
+			buffer:setPixel(x + charNr, y, c1, c2, char)
+			charNr = charNr + 1
+		end
+	end
+
+	function buffer:loadImage(dx, dy, image, useBlittle)
+		for y, row in pairs(image) do
+			for x, value in pairs(row) do
+				if (value ~= nil and value > 0) then
+					if (useBlittle == true) then
+						buffer:setPixel(x + (dx - 1) * 2, y + (dy - 1) * 3, value, value, " ")
+					else
+						buffer:setPixel(x + dx - 1, y + dy - 1, value, value, " ")
+					end
+				end
+			end
+		end
+	end
+
+	function buffer:loadBox(x1, y1, x2, y2, c1, c2, char)
+		for x = x1, x2 do
+			for y = y1, y2 do
+				buffer:setPixel(x, y, c1, c2, char)
+			end
+		end
+	end
+
+	function buffer:loadBorderBox(x1, y1, x2, y2, c1, c2, char)
+		for x = x1, x2 do
+			if (x == x1) then
+				for y = y1, y2 do
+					if (y == y1) then
+						buffer:setPixel(x, y, c1, c2, string.char(151))
+					elseif (y == y2) then
+						buffer:setPixel(x, y, c2, c1, string.char(138))
+					else
+						buffer:setPixel(x, y, c1, c2, string.char(149))
+					end
+				end
+			elseif (x == x2) then
+				for y = y1, y2 do
+					if (y == y1) then
+						buffer:setPixel(x, y, c2, c1, string.char(148))
+					elseif (y == y2) then
+						buffer:setPixel(x, y, c2, c1, string.char(133))
+					else
+						buffer:setPixel(x, y, c2, c1, string.char(149))
+					end
+				end
+			else
+				for y = y1, y2 do
+					if (y == y1) then
+						buffer:setPixel(x, y, c1, c2, string.char(131))
+					elseif (y == y2) then
+						buffer:setPixel(x, y, c2, c1, string.char(143))
+					else
+						buffer:setPixel(x, y, c1, c2, char)
+					end
+				end
+			end
+		end
+	end
+
+	function buffer:loadBorderBoxBlittle(x1, y1, x2, y2, c1, c2, char)
+		for x = x1, x2 do
+			for y = y1, y2 do
+				if (x == x1 or x == x2 or y == y1 or y == y2) then
+					buffer:setPixel(x, y, c2, c1, " ")
+				else
+					buffer:setPixel(x, y, c1, c2, " ")
+				end
+			end
+		end
+	end
+
+	function buffer:loadLine(x1, y1, x2, y2, c)
+		local a, b = linear(x1, y1, x2, y2)
+
+		if (x2 >= x1) then
+			local x = x1
+			while (x <= x2) do
+				local y = a * x + b
+				buffer:setPixel(x, y, c, c, " ")
+
+				x = x + 1
+				if (x > buffer.x2 - buffer.x1 + 1 + 5) then
+					break
+				end
+				if (x < 1) then
+					x = 1
+				end
+			end
+		else
+			local x = x2
+			while (x <= x1) do
+				local y = a * x + b
+				buffer:setPixel(x, y, c, c, " ")
+
+				x = x + 1
+				if (x > buffer.x2 - buffer.x1 + 1 + 5) then
+					break
+				end
+				if (x < 1) then
+					x = 1
+				end
+			end
+		end
+
+		if (y2 >= y1) then
+			local y = y1
+			while (y < y2) do
+				local x = (y - b) / a
+				buffer:setPixel(x, y, c, c, " ")
+
+				y = y + 1
+				if (y > buffer.y2 - buffer.y1 + 1 + 5) then
+					break
+				end
+				if (y < 1) then
+					y = 1
+				end
+			end
+		else
+			local y = y2
+			while (y < y1) do
+				local x = (y - b) / a
+				buffer:setPixel(x, y, c, c, " ")
+
+				y = y + 1
+				if (y > buffer.y2 - buffer.y1 + 1 + 5) then
+					break
+				end
+				if (y < 1) then
+					y = 1
+				end
+			end
+		end
+	end
+
+	function buffer:horLine(a1, b1, a2, b2, startY, endY, c)
+		if (startY < 0) then startY = 0 end
+		if (startY > buffer.y2 - buffer.y1 + 2) then startY = buffer.y2 - buffer.y1 + 2 end
+		if (endY < 0) then endY = 0 end
+		if (endY > buffer.y2 - buffer.y1 + 2) then endY = buffer.y2 - buffer.y1 + 2 end
+
+		for y = startY, endY do
+			local y2 = y
+			if (y ~= startY and y ~= endY) then
+				y2 = round(y)
+			end
+
+			local x1 = (round(y2 - 0.5) - b1) / a1
+			local x2 = (round(y2 - 0.5) - b2) / a2
+
+			if (x1 < 0) then x1 = 0 end
+			if (x1 > buffer.x2 - buffer.x1 + 2) then x1 = buffer.x2 - buffer.x1 + 2 end
+			if (x2 < 0) then x2 = 0 end
+			if (x2 > buffer.x2 - buffer.x1 + 2) then x2 = buffer.x2 - buffer.x1 + 2 end
+
+			x1 = round(x1)
+			x2 = round(x2)
+
+			if (x1 < x2) then
+				for x = x1, x2 do
+					buffer:setPixel(x, y2, c, c, " ")
+				end
+			else
+				for x = x2, x1 do
+					buffer:setPixel(x, y2, c, c, " ")
+				end
+			end
+		end
+	end
+
+	function buffer:loadTriangle(x1, y1, x2, y2, x3, y3, c)
+		local a1, b1 = linear(x1, y1, x2, y2)
+		local a2, b2 = linear(x2, y2, x3, y3)
+		local a3, b3 = linear(x1, y1, x3, y3)
+
+		buffer:loadLine(x1, y1, x2, y2, c)
+		buffer:loadLine(x2, y2, x3, y3, c)
+		buffer:loadLine(x3, y3, x1, y1, c)
+
+		if (y1 <= y2 and y1 <= y3) then
+			if (y2 <= y3) then
+				if (a1 ~= 0) then
+					buffer:horLine(a1, b1, a3, b3, y1, y2, c)
+				end
+				if (a2 ~= 0) then
+					buffer:horLine(a2, b2, a3, b3, y2, y3, c)
+				end
+			else
+				if (a3 ~= 0) then
+					buffer:horLine(a1, b1, a3, b3, y1, y3, c)
+				end
+				if (a2 ~= 0) then
+					buffer:horLine(a1, b1, a2, b2, y3, y2, c)
+				end
+			end
+		elseif (y2 <= y1 and y2 <= y3) then
+			if (y1 <= y3) then
+				if (a1 ~= 0) then
+					buffer:horLine(a1, b1, a2, b2, y2, y1, c)
+				end
+				if (a3 ~= 0) then
+					buffer:horLine(a2, b2, a3, b3, y1, y3, c)
+				end
+			else
+				if (a2 ~= 0) then
+					buffer:horLine(a1, b1, a2, b2, y2, y3, c)
+				end
+				if (a3 ~= 0) then
+					buffer:horLine(a1, b1, a3, b3, y3, y1, c)
+				end
+			end
+		else
+			if (y1 <= y2) then
+				if (a3 ~= 0) then
+					buffer:horLine(a2, b2, a3, b3, y3, y1, c)
+				end
+				if (a1 ~= 0) then
+					buffer:horLine(a1, b1, a2, b2, y1, y2, c)
+				end
+			else
+				if (a2 ~= 0) then
+					buffer:horLine(a2, b2, a3, b3, y3, y2, c)
+				end
+				if (a1 ~= 0) then
+					buffer:horLine(a1, b1, a3, b3, y2, y1, c)
+				end
+			end
+		end
+	end
+
+	function buffer:loadCircle(x, y, c1, c2, char, radius)
+		for loopX = buffer.x1, buffer.x2 do
+			for loopY = buffer.y1, buffer.y2 do
+				local dx = loopX - x
+				local dy = loopY - y
+				local distance = math.sqrt(dx^2 + dy^2)
+
+				if (round(distance) <= radius) then
+					buffer:setPixel(loopX, loopY, c1, c2, char)
+				end
+			end
+		end
+	end
+
+	function buffer:drawBuffer(blittleOn)
+		if (blittleOn == false) then
+			for y = 1, buffer.y2 - buffer.y1 + 1 do
+				local chars = ""
+				local c1s = ""
+				local c2s = ""
+
+				for x = 1, buffer.x2 - buffer.x1 + 1 do
+					local pixel = buffer.screenBuffer[x][y]
+					chars = chars..pixel.char
+					c1s = c1s..colorChar[pixel.c1]
+					c2s = c2s..colorChar[pixel.c2]
+				end
+
+				term.setCursorPos(buffer.x1, y + buffer.y1 - 1)
+				term.blit(chars, c1s, c2s)
+			end
+		else
+			local blittleWindow = blittle.createWindow(term.current(), (buffer.x1-1)/2+1, (buffer.y1-1)/3 + 1, (buffer.x2 - buffer.x1)/2+1, (buffer.y2 - buffer.y1)/3, false)
+			for y = 1, buffer.y2 - buffer.y1 - 2 do
+				local chars = ""
+				local c1s = ""
+				local c2s = ""
+
+				for x = 1, buffer.x2 - buffer.x1 + 1 do
+					local pixel = buffer.screenBuffer[x][y]
+					chars = chars..pixel.char
+					c1s = c1s..colorChar[pixel.c1]
+					c2s = c2s..colorChar[pixel.c2]
+				end
+
+				blittleWindow.setCursorPos(1, y)
+				blittleWindow.blit(chars, c1s, c2s)
+			end
+			blittleWindow.setVisible(true)
+			blittleWindow.setVisible(false)
+		end
+	end
+
+	return buffer
+end

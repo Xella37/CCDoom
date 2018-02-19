@@ -1,0 +1,1085 @@
+
+-- Made by Xelostar: https://www.youtube.com/channel/UCDE2STpSWJrIUyKtiYGeWxw
+
+local path = "/"..shell.dir()
+
+os.loadAPI(path.."/ThreeD")
+os.loadAPI(path.."/bufferAPI")
+os.loadAPI(path.."/blittle")
+
+local objects = {}
+
+local gun = paintutils.loadImage(path.."/images/gun")
+local gunf = paintutils.loadImage(path.."/images/gunf")
+local bgun = paintutils.loadImage(path.."/images/bgun")
+local bgunf = paintutils.loadImage(path.."/images/bgunf")
+
+local heart = paintutils.loadImage(path.."/images/heart")
+local bheart = paintutils.loadImage(path.."/images/bheart")
+local hearts = 5
+
+local fire = paintutils.loadImage(path.."/images/fire")
+local bfire = paintutils.loadImage(path.."/images/bfire")
+local shootCooldown = 1/20 / 16
+local lastShot = os.time() - shootCooldown
+
+local playerX = 0
+local playerY = 0
+local playerZ = -2
+
+local playerSpeed = 3
+local playerTurnSpeed = 100
+local keysDown = {}
+
+local username = "Unnamed"
+local submitScore = true
+local graphics = "Good"
+local score = 0
+local scoreTime = 0
+local endGame = false
+local levelCount = 0
+local reloadedLevel = false
+
+local xDoor = true
+local endless = false
+
+local enemySpeed = 2.5
+
+local FoV = 90
+
+local playerDirectionHor = 0
+local playerDirectionVer = 0
+
+local screenWidth, screenHeight = term.getSize()
+
+local backgroundColor1 = colors.orange
+local backgroundColor2 = colors.lightGray
+
+local ThreeDFrame = ThreeD.newFrame(1, 1, screenWidth, screenHeight, FoV, playerX, playerY + 0.5, playerZ, playerDirectionVer, playerDirectionHor, colors.lime, path.."/models")
+local blittleOn = true
+ThreeDFrame:useBLittle(blittleOn)
+
+local function min(a, b)
+	if (a <= b) then
+		return a
+	end
+	return b
+end
+
+local function loadSettings()
+	if (fs.exists(path.."/settings") == false) then
+		local file = fs.open(path.."/settings", "w")
+		file.writeLine("Unnamed")
+		file.writeLine("true")
+		file.writeLine("Good")
+		file.close()
+	end
+
+	local file = fs.open(path.."/settings", "r")
+	username = file.readLine()
+	submitScore = file.readLine()
+	graphics = file.readLine()
+	file.close()
+
+	if (graphics == "Good") then
+		blittleOn = true
+	else
+		blittleOn = false
+	end
+	ThreeDFrame:useBLittle(blittleOn)
+end
+
+local function saveSettings()
+	local file = fs.open(path.."/settings", "w")
+	file.writeLine(username)
+	file.writeLine(submitScore)
+	file.writeLine(graphics)
+	file.close()
+end
+
+local function loadLevel(levelname)
+	if (reloadedLevel == false) then
+		objects = {}
+	end
+	local level = paintutils.loadImage(path.."/levels/"..levelname)
+	
+	for z, row in pairs(level) do
+		for x, value in pairs(row) do
+			if (value ~= nil and value > 0) then
+				if (value == 1) then
+					playerX = x
+					playerY = 0
+					playerZ = z
+				end
+				if (reloadedLevel == false) then
+					if (value == colors.orange) then
+						table.insert(objects, {model = "wallz", x = x, y = 0, z = z, rotationY = 0, solid = true})
+					elseif (value == colors.magenta) then
+						table.insert(objects, {model = "wallx", x = x, y = 0, z = z, rotationY = 0, solid = true})
+					elseif (value == colors.lightBlue) then
+						table.insert(objects, {model = "wallxz", x = x, y = 0, z = z, rotationY = 0, solid = true})
+					elseif (value == colors.red) then
+						table.insert(objects, {model = "doorz", x = x, y = 0, z = z, rotationY = 0, solid = false})
+					elseif (value == colors.green) then
+						table.insert(objects, {model = "doorx", x = x, y = 0, z = z, rotationY = 0, solid = false})
+					elseif (value == colors.yellow) then
+						table.insert(objects, {model = "enemy1", x = x, y = 0, z = z, rotationY = 0, solid = false, lastHit = os.time()})
+					elseif (value == colors.lime) then
+						table.insert(objects, {model = "enemy2", x = x, y = 0, z = z, rotationY = 0, solid = false, lastHit = os.time() - 1/20})
+					elseif (value == colors.pink) then
+						table.insert(objects, {model = "emerald", x = x, y = 0, z = z, rotationY = 45, solid = true})
+					end
+				end
+			end
+		end
+	end
+end
+
+local function loadRandomLevel(xDoor)
+	if (xDoor == false) then
+		local levels = {"level3", "level5", "level7"}
+		loadedLevel = levels[math.random(1, table.getn(levels))]
+	else
+		local levels = {"level2", "level4", "level6", "level8"}
+		loadedLevel = levels[math.random(1, table.getn(levels))]
+	end
+
+	loadLevel(loadedLevel)
+end
+
+local function free(x, y, z)
+	for objectNr, object in pairs(objects) do
+		if (object.solid == true) then
+			if (x >= object.x - 0.5 and x <= object.x + 0.5) then
+				if (y >= object.y and y <= object.y + 1) then
+					if (z >= object.z - 0.5 and z <= object.z + 0.5) then
+						return false
+					end
+				end
+			end
+		end
+	end
+	return true
+end
+
+local function rendering()
+	ThreeDFrame:setCamera(playerX, playerY + 0.5, playerZ, playerDirectionHor, playerDirectionVer)
+	
+	while true do
+		ThreeDFrame:loadGround(backgroundColor1)
+		ThreeDFrame:loadSky(backgroundColor2)
+		ThreeDFrame:loadObjects(objects)
+		if (blittleOn == true) then
+			if (lastShot > os.time() - shootCooldown) then
+				ThreeDFrame.buffer:loadImage(29, 8, bfire, true)
+				ThreeDFrame.buffer:loadImage(32, 10, bgunf, true)
+			else
+				ThreeDFrame.buffer:loadImage(32, 10, bgun, true)
+			end
+
+			for i = 1, hearts do
+				ThreeDFrame.buffer:loadImage(2 + (i-1) * 6, 2, bheart, true)
+			end
+		else
+			if (lastShot > os.time() - shootCooldown) then
+				ThreeDFrame.buffer:loadImage(29, 8, fire, false)
+				ThreeDFrame.buffer:loadImage(32, 10, gunf, false)
+			else
+				ThreeDFrame.buffer:loadImage(32, 10, gun, false)
+			end
+			
+			for i = 1, hearts do
+				ThreeDFrame.buffer:loadImage(2 + (i-1) * 6, 2, heart, false)
+			end
+		end
+		ThreeDFrame:drawBuffer()
+
+		os.queueEvent("FakeEvent")
+		os.pullEvent("FakeEvent")
+	end
+end
+
+local function shoot()
+	local bulletDirHor = playerDirectionHor
+	local bulletX = playerX
+	local bulletZ = playerZ
+
+	local step = 0.15
+
+	local hit = false
+	for i = 1, 10 / step do
+		bulletX = bulletX + math.cos(math.rad(playerDirectionHor)) * step
+		bulletZ = bulletZ + math.sin(math.rad(playerDirectionHor)) * step
+
+		if (free(bulletX, 0, bulletZ) == false) then
+			hit = true
+			break
+		end
+
+		for objectNr, object in pairs(objects) do
+			if (object.model == "enemy1" or object.model == "enemy2") then
+				if ((math.abs(bulletX - object.x)^2 + math.abs(bulletZ - object.z))^0.5 <= 0.5) then
+					object.model = "corpse"
+					hit = true
+					score = score + 10
+					break
+				end
+			end
+		end
+
+		if (hit == true) then
+			break
+		end
+	end
+end
+
+local function inputPlayer(time)
+	local dX = 0
+	local dZ = 0 
+
+	if (keysDown[keys.left]) then
+		playerDirectionHor = playerDirectionHor - playerTurnSpeed * time
+		if (playerDirectionHor <= -180) then
+			playerDirectionHor = playerDirectionHor + 360
+		end
+	end
+	if (keysDown[keys.right]) then
+		playerDirectionHor = playerDirectionHor + playerTurnSpeed * time
+		if (playerDirectionHor >= 180) then
+			playerDirectionHor = playerDirectionHor - 360
+		end
+	end
+	if (keysDown[keys.down]) then
+		playerDirectionVer = playerDirectionVer - playerTurnSpeed * time
+		if (playerDirectionVer < -80) then
+			playerDirectionVer = -80
+		end
+	end
+	if (keysDown[keys.up]) then
+		playerDirectionVer = playerDirectionVer + playerTurnSpeed * time
+		if (playerDirectionVer > 80) then
+			playerDirectionVer = 80
+		end
+	end
+	if (keysDown[keys.w]) then
+		dX = playerSpeed * math.cos(math.rad(playerDirectionHor)) + dX
+		dZ = playerSpeed * math.sin(math.rad(playerDirectionHor)) + dZ
+	end
+	if (keysDown[keys.s]) then
+		dX = -playerSpeed * math.cos(math.rad(playerDirectionHor)) + dX
+		dZ = -playerSpeed * math.sin(math.rad(playerDirectionHor)) + dZ
+	end
+	if (keysDown[keys.a]) then
+		dX = playerSpeed * math.cos(math.rad(playerDirectionHor - 90)) + dX
+		dZ = playerSpeed * math.sin(math.rad(playerDirectionHor - 90)) + dZ
+	end
+	if (keysDown[keys.d]) then
+		dX = playerSpeed * math.cos(math.rad(playerDirectionHor + 90)) + dX
+		dZ = playerSpeed * math.sin(math.rad(playerDirectionHor + 90)) + dZ
+	end
+	if (keysDown[keys.space]) then
+		if (lastShot < os.time() - shootCooldown) then
+			lastShot = os.time()
+			shoot()
+		end
+	end
+
+	if (free(playerX + dX * time, playerY, playerZ) == true) then
+		playerX = playerX + dX * time
+	end
+	if (free(playerX, playerY, playerZ + dZ * time) == true) then
+		playerZ = playerZ + dZ * time
+	end
+
+	for _, object in pairs(objects) do
+		if (object.model == "doorx" or object.model == "doorz") then
+			local dx = object.x - playerX
+			local dz = object.z - playerZ
+			local distance = math.sqrt(dx^2 + dz^2)
+
+			if (distance < 0.5) then
+				if (endless == false) then
+					reloadedLevel = true
+					if (loadedLevel == "level1") then
+						loadedLevel = "level2"
+						reloadedLevel = false
+					elseif (loadedLevel == "level2" and object.model == "doorx") then
+						loadedLevel = "level3"
+						reloadedLevel = false
+					elseif (loadedLevel == "level3" and object.model == "doorz") then
+						loadedLevel = "level4"
+						reloadedLevel = false
+					elseif (loadedLevel == "level4" and object.model == "doorx") then
+						loadedLevel = "level5"
+						reloadedLevel = false
+					elseif (loadedLevel == "level5" and object.model == "doorz") then
+						loadedLevel = "level6"
+						reloadedLevel = false
+					elseif (loadedLevel == "level6" and object.model == "doorx") then
+						loadedLevel = "level7"
+						reloadedLevel = false
+					elseif (loadedLevel == "level7" and object.model == "doorz") then
+						loadedLevel = "level8"
+						reloadedLevel = false
+					elseif (loadedLevel == "level8" and object.model == "doorx") then
+						loadedLevel = "level9"
+						reloadedLevel = false
+						
+						backgroundColor1 = colors.lime
+						backgroundColor2 = colors.lightBlue
+
+						playerDirectionHor = 270
+						playerDirectionVer = 0
+
+						endGame = true
+						score = score + hearts * 16 + 400 - 8*min(50, time)
+					end
+					
+					loadLevel(loadedLevel)
+				else
+					if (object.model == "doorx" and xDoor == true) then
+						xDoor = false
+						loadRandomLevel(xDoor)
+						levelCount = levelCount + 1
+					elseif (object.model == "doorz" and xDoor == false) then
+						xDoor = true
+						loadRandomLevel(xDoor)
+						levelCount = levelCount + 1
+					else
+						loadLevel(loadedLevel)
+					end
+				end
+			end
+		end
+	end
+
+	ThreeDFrame:setCamera(playerX, playerY + 0.5, playerZ, playerDirectionHor, playerDirectionVer)
+end
+
+local function smoothKeyInput()
+  keysDown = {}
+  while true do
+		local sEvent, key = os.pullEventRaw()
+		if sEvent == "key" then
+			keysDown[key] = true
+			if (key == keys.g) then
+				loadSettings()
+				if (blittleOn == false) then
+					blittleOn = true
+					graphics = "Good"
+					ThreeDFrame:useBLittle(true)
+				else
+					blittleOn = false
+					graphics = "Bad"
+					ThreeDFrame:useBLittle(false)
+				end
+				saveSettings()
+			end
+		elseif sEvent == "key_up" then
+			keysDown[key] = nil
+		end
+	end
+end
+
+local function lineOfSight(x, z)
+	local dx = x - playerX
+	local dz = z - playerZ
+	local lineDir = math.atan(dx / dz)
+	local distance = math.sqrt(dx^2 + dz^2)
+
+	local curX = x
+	local curZ = z
+
+	local step = 0.15
+
+	local sight = true
+	for i = 1, distance / step do
+		curX = curX + math.cos(lineDir) * step
+		curZ = curZ + math.sin(lineDir) * step
+
+		if (free(curX, 0, curZ) == false) then
+			sight = false
+			break
+		end
+	end
+
+	return sight
+end
+
+local function updateGame(time)
+	if (endGame == false) then
+		scoreTime = scoreTime + time
+	end
+
+	for objectNr, object in pairs(objects) do
+		if (object.model == "enemy1") then
+			local dx = object.x - playerX
+			local dz = object.z - playerZ
+			
+			if (dz == 0) then
+				dz = 0.00001
+			end
+
+			local playerDir = math.deg(math.atan(dx/dz))
+			if (dz < 0) then
+				if (dx < 0) then
+					playerDir = playerDir - 180
+				else
+					playerDir = playerDir + 180
+				end
+			else
+				if (dx < 0) then
+					playerDir = playerDir
+				else
+					playerDir = playerDir
+				end
+			end
+
+			object.rotationY = playerDir + 90
+
+			if (object.lastHit < os.time() - 1/20) then
+				if (lineOfSight(object.x, object.z) == true) then
+					object.lastHit = os.time()
+					hearts = hearts - 1
+				end
+			end
+		elseif (object.model == "enemy2") then
+			local dx = object.x - playerX
+			local dz = object.z - playerZ
+			
+			if (dz == 0) then
+				dz = 0.00001
+			end
+
+			local playerDir = math.deg(math.atan(dx/dz))
+			if (dz < 0) then
+				if (dx < 0) then
+					playerDir = playerDir - 180
+				else
+					playerDir = playerDir + 180
+				end
+			else
+				if (dx < 0) then
+					playerDir = playerDir
+				else
+					playerDir = playerDir
+				end
+			end
+
+			object.rotationY = playerDir + 90
+			local playerDistance = math.sqrt(dx^2 + dz^2)
+				
+			if (playerDistance >= 0.5) then
+				local edX = -enemySpeed * math.sin(math.rad(playerDir)) * time
+				local edZ = -enemySpeed * math.cos(math.rad(playerDir)) * time
+				if (free(object.x + edX, object.y, object.z) == true) then
+					object.x = object.x + edX
+				end
+				if (free(object.x, object.y, object.z + edZ) == true) then
+					object.z = object.z + edZ
+				end
+			end
+
+			if (object.lastHit < os.time() - 1/20) then
+				if (playerDistance < 1) then
+					object.lastHit = os.time()
+					hearts = hearts - 1
+				end
+			end
+		end
+	end
+end
+
+local function gameUpdate()
+	local timeFromLastUpdate = os.clock()
+	local avgUpdateSpeed = 0
+	local updateCount = 0
+	local timeOff = 0
+
+	while true do
+		local currentTime = os.clock()
+		if (currentTime > timeFromLastUpdate) then
+			updateGame(currentTime - timeFromLastUpdate - timeOff)
+			inputPlayer(currentTime - timeFromLastUpdate - timeOff)
+			avgUpdateSpeed = (currentTime - timeFromLastUpdate) / (updateCount + 1)
+			updateCount = 0
+			timeOff = 0
+		else
+			updateGame(avgUpdateSpeed)
+			newTimeOff = timeOff + avgUpdateSpeed
+			newUpdateCount = updateCount + 1
+		end
+		timeFromLastUpdate = currentTime
+
+		sleep(0)
+
+		if (endGame == true or hearts <= 0) then
+			sleep(3)
+			break
+		end
+	end
+end
+
+local function viewHighscores(endless)
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.yellow)
+	term.clear()
+
+	term.setCursorPos(12, 10)
+	write("Connecting to the database...")
+
+	local rawData = {}
+	if (endless == false) then
+		rawData = http.get("https://xelonet.000webhostapp.com/getHighscores.php")
+	else
+		rawData = http.get("https://xelonet.000webhostapp.com/getHighscoresEndless.php")
+	end
+
+	if (rawData == nil) then
+		term.setBackgroundColor(colors.black)
+		term.setTextColor(colors.red)
+		term.clear()
+		term.setCursorPos(2, 2)
+		write("Server is not reachable.")
+	else
+		local rawData2 = rawData.readAll()
+
+		term.clear()
+		term.setCursorPos(2, 2)
+		write("Online Highscores:")
+
+		term.setTextColor(colors.red)
+		term.setCursorPos(2, 4)
+		if (endless == false) then
+			write("#  Nickname             Score  Time    Date")
+		else
+			write("#  Nickname             Score  Levels  Date")
+		end
+		term.setTextColor(colors.orange)
+		local recordNr = 0
+		for record in rawData2:gmatch("[^~]*~") do
+			record = record:gsub("~", "")
+
+			term.setCursorPos(2, 6 + recordNr)
+			write(recordNr + 1)
+
+			local catNr = 0
+			for cat in record:gmatch("[^;]*;") do
+				if (catNr == 0) then
+					term.setCursorPos(5, 6 + recordNr)
+				elseif (catNr == 1) then
+					term.setCursorPos(26, 6 + recordNr)
+				elseif (catNr == 2) then
+					term.setCursorPos(33, 6 + recordNr)
+				elseif (catNr == 3) then
+					term.setCursorPos(41, 6 + recordNr)
+					local year = ""
+					local month = ""
+					local day = ""
+
+					local partNr = 0
+					for part in cat:gmatch("[^-]*") do
+						if (partNr == 0) then
+							year = part
+						elseif (partNr == 2) then
+							month = part
+						elseif (partNr == 4) then
+							day = part
+						end
+
+						partNr = partNr + 1
+					end
+
+					cat = day.."-"..month.."-"..year
+				end
+
+				write(cat:gsub(";", ""))
+				catNr = catNr + 1
+			end
+			recordNr = recordNr + 1
+
+			if (recordNr >= 11) then
+				break
+			end
+		end
+	end
+
+	sleep(1)
+
+	term.setTextColor(colors.yellow)
+	term.setCursorPos(2, 18)
+	write("Press any key to close...")
+	sleep(0.5)
+	os.pullEventRaw()
+end
+
+local function newGameNormal()
+	score = 0
+	time = 0
+	hearts = 5
+	endGame = false
+	playerDirectionHor = 0
+	playerDirectionVer = 0
+	reloadedLevel = false
+
+	loadedLevel = "level1"
+	loadLevel(loadedLevel)
+	endless = false
+	backgroundColor1 = colors.orange
+	backgroundColor2 = colors.lightGray
+
+	loadSettings()
+	ThreeDFrame:useBLittle(blittleOn)
+
+	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
+
+	if (hearts > 0) then
+		term.setBackgroundColor(colors.black)
+		term.setTextColor(colors.red)
+		term.clear()
+
+		term.setCursorPos(2, 2)
+		write("You have survived!")
+
+		term.setTextColor(colors.orange)
+		term.setCursorPos(2, 4)
+		write("Score: "..score)
+		term.setCursorPos(2, 5)
+		write("Time: "..scoreTime)
+
+		if (submitScore == "true") then
+			local result = http.get("https://xelonet.000webhostapp.com/newScore.php?name="..textutils.urlEncode(username).."&score="..score.."&time="..scoreTime)
+			if (result == nil) then
+				term.setBackgroundColor(colors.black)
+				term.setTextColor(colors.red)
+				term.clear()
+				term.setCursorPos(2, 2)
+				write("Server is not reachable. Score has not been submitted.")
+				sleep(3)
+			end
+		else
+			sleep(1)
+		end
+		term.setTextColor(colors.yellow)
+		term.setCursorPos(2, 18)
+		write("Press any key to close...")
+		os.pullEventRaw()
+
+		if (submitScore == "true") then
+			viewHighscores(false)
+		end
+	end
+end
+
+local function newGameEndless()
+	score = 0
+	time = 0
+	hearts = 8
+	endGame = false
+	playerDirectionHor = 0
+	playerDirectionVer = 0
+	reloadedLevel = false
+
+	xDoor = false
+	loadRandomLevel(xDoor)
+	endless = true
+	levelCount = 0
+	backgroundColor1 = colors.orange
+	backgroundColor2 = colors.lightGray
+
+	loadSettings()
+	ThreeDFrame:useBLittle(blittleOn)
+
+	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
+	score = score + levelCount * 22
+
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.red)
+	term.clear()
+
+	term.setCursorPos(2, 2)
+	write("You died!")
+
+	term.setTextColor(colors.orange)
+	term.setCursorPos(2, 4)
+	write("Score: "..score)
+	term.setCursorPos(2, 5)
+	write("Levels: "..levelCount)
+
+	if (submitScore == "true") then
+		local result = http.get("https://xelonet.000webhostapp.com/newScoreEndless.php?name="..textutils.urlEncode(username).."&score="..score.."&levels="..levelCount)
+		if (result == nil) then
+			term.setBackgroundColor(colors.black)
+			term.setTextColor(colors.red)
+			term.clear()
+			term.setCursorPos(2, 2)
+			write("Server is not reachable. Score has not been submitted.")
+			sleep(3)
+		end
+	else
+		sleep(1)
+	end
+	term.setTextColor(colors.yellow)
+	term.setCursorPos(2, 18)
+	write("Press any key to close...")
+	os.pullEventRaw()
+
+	if (submitScore == "true") then
+		viewHighscores(true)
+	end
+end
+
+local function newGame()
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.red)
+	term.clear()
+
+	term.setCursorPos(21, 8)
+	write("Normal Mode")
+
+	term.setCursorPos(20, 10)
+	write("Endless Mode")
+
+	term.setCursorPos(24, 12)
+	write("Back")
+
+	local selected2 = 0
+	while true do
+		term.setTextColor(colors.yellow)
+		term.setCursorPos(19, 8)
+		if (selected2 == 0) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(18, 10)
+		if (selected2 == 1) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(22, 12)
+		if (selected2 == 2) then
+			write(">")
+		else
+			write(" ")
+		end
+
+		local event, key = os.pullEventRaw("key")
+		if (key == keys.w or key == keys.up) then
+			selected2 = (selected2 - 1 + 3) % 3
+		elseif (key == keys.s or key == keys.down) then
+			selected2 = (selected2 + 1) % 3
+		elseif (key == keys.space or key == keys.enter) then
+			if (selected2 == 0) then
+				newGameNormal()
+			elseif (selected2 == 1) then
+				newGameEndless()
+			end
+			break
+		end
+	end	
+end
+
+local function showHighscores()
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.red)
+	term.clear()
+
+	term.setCursorPos(21, 8)
+	write("Normal Mode")
+
+	term.setCursorPos(20, 10)
+	write("Endless Mode")
+
+	term.setCursorPos(24, 12)
+	write("Back")
+
+	local selected2 = 0
+	while true do
+		term.setTextColor(colors.yellow)
+		term.setCursorPos(19, 8)
+		if (selected2 == 0) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(18, 10)
+		if (selected2 == 1) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(22, 12)
+		if (selected2 == 2) then
+			write(">")
+		else
+			write(" ")
+		end
+
+		local event, key = os.pullEventRaw("key")
+		if (key == keys.w or key == keys.up) then
+			selected2 = (selected2 - 1 + 3) % 3
+		elseif (key == keys.s or key == keys.down) then
+			selected2 = (selected2 + 1) % 3
+		elseif (key == keys.space or key == keys.enter) then
+			if (selected2 == 0) then
+				viewHighscores(false)
+			elseif (selected2 == 1) then
+				viewHighscores(true)
+			end
+			break
+		end
+	end	
+end
+
+local function drawMenu()
+	local logo = paintutils.loadImage(path.."/images/logo")
+	local blogo = blittle.shrink(logo)
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.red)
+	term.clear()
+	blittle.draw(blogo, 12, 3)
+
+	term.setCursorPos(21, 10)
+	write("Start Game")
+
+	term.setCursorPos(17, 12)
+	write("Online Highscores")
+
+	term.setCursorPos(22, 14)
+	write("Settings")
+
+	term.setCursorPos(24, 16)
+	write("Exit")
+
+	term.setTextColor(colors.yellow)
+	term.setCursorPos(1, 19)
+	write("Copyright (c) 2018 Xelostar")
+end
+
+local function drawSettings()
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.yellow)
+	term.clear()
+
+	term.setCursorPos(2, 2)
+	write("Settings:")
+
+	term.setCursorPos(4, 4)
+	write("Change name | ")
+	term.setTextColor(colors.orange)
+	write(username)
+
+	term.setCursorPos(4, 6)
+	term.setTextColor(colors.yellow)
+	write("Submit score | ")
+	if (submitScore == "true") then
+		term.setTextColor(colors.lime)
+		write("Enabled")
+	else
+		term.setTextColor(colors.red)
+		write("Disabled")
+	end
+
+	term.setCursorPos(4, 8)
+	term.setTextColor(colors.yellow)
+	write("Graphics | ")
+	if (graphics == "Good") then
+		term.setTextColor(colors.lime)
+	else
+		term.setTextColor(colors.red)
+	end
+	write(graphics.."   ")
+	term.setTextColor(colors.yellow)
+	write("(Toggle in-game using \"G\")")
+
+	term.setTextColor(colors.orange)
+	term.setCursorPos(4, 10)
+	write("Save and close")
+end
+
+local function changeName()
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.yellow)
+	term.clear()
+
+	term.setCursorPos(2, 2)
+	write("Enter a username (3-20 characters):")
+
+	while true do
+		term.setCursorPos(2, 4)
+		term.clearLine()
+		term.setCursorPos(2, 4)
+		term.setTextColor(colors.red)
+		write("Username: ")
+		term.setTextColor(colors.orange)
+		local usernameCandidate = read()
+		if (string.len(usernameCandidate) >= 3 and string.len(usernameCandidate) <= 20) then
+			username = usernameCandidate
+			break
+		else
+			term.setBackgroundColor(colors.black)
+			term.setTextColor(colors.red)
+			term.setCursorPos(2, 6)
+			write("Your new username must be at least 3 and at most\n 20 characters long!")
+		end
+	end
+
+	term.setBackgroundColor(colors.black)
+	term.setTextColor(colors.yellow)
+	term.clear()
+
+	term.setCursorPos(2, 2)
+	write("Your new username is: ")
+
+	term.setTextColor(colors.orange)
+	write(username)
+end
+
+local function settingsMenu()
+	loadSettings()
+
+	drawSettings()
+	local selected2 = 0
+	while true do
+		term.setTextColor(colors.yellow)
+		term.setCursorPos(2, 4)
+		if (selected2 == 0) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(2, 6)
+		if (selected2 == 1) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(2, 8)
+		if (selected2 == 2) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(2, 10)
+		if (selected2 == 3) then
+			write(">")
+		else
+			write(" ")
+		end
+
+		local event, key = os.pullEventRaw("key")
+		if (key == keys.w or key == keys.up) then
+			selected2 = (selected2 - 1 + 4) % 4
+		elseif (key == keys.s or key == keys.down) then
+			selected2 = (selected2 + 1) % 4
+		elseif (key == keys.space or key == keys.enter) then
+			if (selected2 == 0) then
+				changeName()
+				drawSettings()
+			elseif (selected2 == 1) then
+				if (submitScore == "true") then
+					submitScore = "false"
+				else
+					submitScore = "true"
+				end
+
+				term.setCursorPos(4, 6)
+				term.setTextColor(colors.yellow)
+				write("Submit score | ")
+				if (submitScore == "true") then
+					term.setTextColor(colors.lime)
+					write("Enabled ")
+				else
+					term.setTextColor(colors.red)
+					write("Disabled")
+				end
+			elseif (selected2 == 2) then
+				if (graphics == "Good") then
+					graphics = "Bad"
+					blittleOn = false
+					ThreeDFrame:useBLittle(blittleOn)
+				else
+					graphics = "Good"
+					blittleOn = true
+					ThreeDFrame:useBLittle(blittleOn)
+				end
+
+				term.setCursorPos(4, 8)
+				term.setTextColor(colors.yellow)
+				write("Graphics | ")
+				if (graphics == "Good") then
+					term.setTextColor(colors.lime)
+				else
+					term.setTextColor(colors.red)
+				end
+				write(graphics.." ")
+			elseif (selected2 == 3) then
+				break
+			end
+		end
+	end	
+
+	saveSettings()
+end
+
+local function mainMenu()
+	drawMenu()
+	selected = 0
+	while true do
+		term.setTextColor(colors.yellow)
+		term.setCursorPos(19, 10)
+		if (selected == 0) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(15, 12)
+		if (selected == 1) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(20, 14)
+		if (selected == 2) then
+			write(">")
+		else
+			write(" ")
+		end
+		term.setCursorPos(22, 16)
+		if (selected == 3) then
+			write(">")
+		else
+			write(" ")
+		end
+
+		local event, key = os.pullEventRaw("key")
+		if (key == keys.w or key == keys.up) then
+			selected = (selected - 1 + 4) % 4
+		elseif (key == keys.s or key == keys.down) then
+			selected = (selected + 1) % 4
+		elseif (key == keys.space or key == keys.enter) then
+			if (selected == 0) then
+				newGame()
+			elseif (selected == 1) then
+				showHighscores()
+			elseif (selected == 2) then
+				settingsMenu()
+			elseif (selected == 3) then
+				term.setBackgroundColor(colors.black)
+				term.setTextColor(colors.yellow)
+				term.clear()
+				term.setCursorPos(14, 10)
+				write("Thanks for playing Doom!")
+				sleep(1)
+				term.clear()
+				term.setCursorPos(1, 1)
+				break
+			end
+			drawMenu()
+		end
+	end
+end
+
+mainMenu()
