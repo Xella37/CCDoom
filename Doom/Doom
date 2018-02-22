@@ -573,12 +573,18 @@ local function deathAnimation()
 		"",
 		"GAME OVER"
 	}
-	for y = scr_y, 1, -2 do
-		term.scroll(-2)
+	local skip = false
+	for y = scr_y, 1, -1 do
+		term.scroll(-1)
 		if script[y-4] then
 			topcenterwrite(script[y-4])
 		end
-		sleep(0)
+		if (skip == true) then
+			sleep(0)
+			skip = false
+		else
+			skip = true
+		end
 	end
 	--sleep(0.5)
 	os.pullEvent("char")
