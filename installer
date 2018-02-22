@@ -35,7 +35,12 @@ local function download(downloadPath, savePath)
 	term.setCursorPos(1, 17)
 	term.clearLine()
 	term.setCursorPos(1, 13)
-	shell.run("pastebin run 3PBKGR4k gh Xelostar/CCDoom/master/"..downloadPath.." "..savePath)
+	
+	local rawData = http.get("https://raw.githubusercontent.com/Xelostar/CCDoom/master/"..downloadPath)
+	local data = rawData.readAll()
+	local file = fs.open(savePath, "w")
+	file.write(data)
+	file.close()
 end
 
 local function pastebinD(code, savePath)
