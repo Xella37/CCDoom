@@ -31,6 +31,8 @@ local playerSpeed = 3
 local playerTurnSpeed = 100
 local keysDown = {}
 
+local gunbobX, gunbobY = 0, 0
+
 local username = "Unnamed"
 local submitScore = true
 local graphics = "Good"
@@ -54,6 +56,13 @@ local screenWidth, screenHeight = term.getSize()
 
 local backgroundColor1 = colors.orange
 local backgroundColor2 = colors.lightGray
+
+local finishMode
+
+function round(num, numDecimalPlaces)
+	local mult = 10^(numDecimalPlaces or 0)
+	return math.floor(num * mult + 0.5) / mult
+end
 
 local ThreeDFrame = ThreeD.newFrame(1, 1, screenWidth, screenHeight, FoV, playerX, playerY + 0.5, playerZ, playerDirectionVer, playerDirectionHor, colors.lime, path.."/models")
 local blittleOn = true
@@ -171,10 +180,10 @@ local function rendering()
 		ThreeDFrame:loadObjects(objects)
 		if (blittleOn == true) then
 			if (lastShot > os.time() - shootCooldown) then
-				ThreeDFrame.buffer:loadImage(29, 8, bfire, true)
-				ThreeDFrame.buffer:loadImage(32, 10, bgunf, true)
+				ThreeDFrame.buffer:loadImage(29+gunbobX, 8+gunbobY, bfire, true)
+				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, bgunf, true)
 			else
-				ThreeDFrame.buffer:loadImage(32, 10, bgun, true)
+				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, bgun, true)
 			end
 
 			for i = 1, hearts do
@@ -182,10 +191,10 @@ local function rendering()
 			end
 		else
 			if (lastShot > os.time() - shootCooldown) then
-				ThreeDFrame.buffer:loadImage(29, 8, fire, false)
-				ThreeDFrame.buffer:loadImage(32, 10, gunf, false)
+				ThreeDFrame.buffer:loadImage(29+gunbobX, 8+gunbobY, fire, false)
+				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, gunf, false)
 			else
-				ThreeDFrame.buffer:loadImage(32, 10, gun, false)
+				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, gun, false)
 			end
 			
 			for i = 1, hearts do
@@ -233,9 +242,12 @@ local function shoot()
 	end
 end
 
+local gunbobby = -1
+
 local function inputPlayer(time)
-	local dX = 0
-	local dZ = 0 
+	local playerXvel = 0
+	local playerZvel = 0
+	local isMoving
 
 	if (keysDown[keys.left]) then
 		playerDirectionHor = playerDirectionHor - playerTurnSpeed * time
@@ -262,33 +274,48 @@ local function inputPlayer(time)
 		end
 	end
 	if (keysDown[keys.w]) then
-		dX = playerSpeed * math.cos(math.rad(playerDirectionHor)) + dX
-		dZ = playerSpeed * math.sin(math.rad(playerDirectionHor)) + dZ
+		playerXvel = playerSpeed * math.cos(math.rad(playerDirectionHor)) + playerXvel
+		playerZvel = playerSpeed * math.sin(math.rad(playerDirectionHor)) + playerZvel
 	end
 	if (keysDown[keys.s]) then
-		dX = -playerSpeed * math.cos(math.rad(playerDirectionHor)) + dX
-		dZ = -playerSpeed * math.sin(math.rad(playerDirectionHor)) + dZ
+		playerXvel = -playerSpeed * math.cos(math.rad(playerDirectionHor)) + playerXvel
+		playerZvel = -playerSpeed * math.sin(math.rad(playerDirectionHor)) + playerZvel
 	end
 	if (keysDown[keys.a]) then
-		dX = playerSpeed * math.cos(math.rad(playerDirectionHor - 90)) + dX
-		dZ = playerSpeed * math.sin(math.rad(playerDirectionHor - 90)) + dZ
+		playerXvel = playerSpeed * math.cos(math.rad(playerDirectionHor - 90)) + playerXvel
+		playerZvel = playerSpeed * math.sin(math.rad(playerDirectionHor - 90)) + playerZvel
 	end
 	if (keysDown[keys.d]) then
-		dX = playerSpeed * math.cos(math.rad(playerDirectionHor + 90)) + dX
-		dZ = playerSpeed * math.sin(math.rad(playerDirectionHor + 90)) + dZ
+		playerXvel = playerSpeed * math.cos(math.rad(playerDirectionHor + 90)) + playerXvel
+		playerZvel = playerSpeed * math.sin(math.rad(playerDirectionHor + 90)) + playerZvel
 	end
+	
 	if (keysDown[keys.space]) then
 		if (lastShot < os.time() - shootCooldown) then
 			lastShot = os.time()
 			shoot()
 		end
 	end
-
-	if (free(playerX + dX * time, playerY, playerZ) == true) then
-		playerX = playerX + dX * time
+	
+	if (math.abs(playerXvel) > 0.5) or (math.abs(playerZvel) > 0.5) then
+		if gunbobby == -1 then gunbobby = 1 end
+		gunbobby = (gunbobby + (math.abs(playerXvel) + math.abs(playerZvel)) / 16) % 360
+	else
+		gunbobby = -1
 	end
-	if (free(playerX, playerY, playerZ + dZ * time) == true) then
-		playerZ = playerZ + dZ * time
+	if gunbobby == -1 then
+		gunbobX = 0
+		gunbobY = 0
+	else
+		gunbobX = round(math.sin(gunbobby),1)
+		gunbobY = round(math.abs(math.cos(gunbobby)),1)
+	end
+	
+	if (free(playerX + playerXvel * time, playerY, playerZ) == true) then
+		playerX = playerX + playerXvel * time
+	end
+	if (free(playerX, playerY, playerZ + playerZvel * time) == true) then
+		playerZ = playerZ + playerZvel * time
 	end
 
 	for _, object in pairs(objects) do
@@ -357,8 +384,8 @@ local function inputPlayer(time)
 end
 
 local function smoothKeyInput()
-  keysDown = {}
-  while true do
+	keysDown = {}
+	while true do
 		local sEvent, key = os.pullEventRaw()
 		if sEvent == "key" then
 			keysDown[key] = true
@@ -374,6 +401,9 @@ local function smoothKeyInput()
 					ThreeDFrame:useBLittle(false)
 				end
 				saveSettings()
+			elseif (key == keys.q) then
+				playerDirectionHor = playerDirectionHor + 180
+				playerDirectionVer = -playerDirectionVer
 			end
 		elseif sEvent == "key_up" then
 			keysDown[key] = nil
@@ -490,6 +520,77 @@ local function updateGame(time)
 	end
 end
 
+local function deathAnimation()
+	local blood = {{16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384},{16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,0,0,0,0,16384,16384,16384,16384,16384,16384,0,0,0,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,0,16384},{16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,16384,1,16384,16384,16384,16384,16384,16384,16384,0,0,0,0,0,0,16384,16384,16384,16384,0,0,0,0,16384,16384,1,16384,16384,0,0,0,0,16384,16384,16384,16384,16384,0,0,0},{16384,16384,16384,16384,16384,1,16384,16384,0,16384,16384,16384,1,1,16384,16384,0,0,16384,16384,0,0,0,0,0,0,0,16384,1,16384,16384,0,0,0,0,16384,16384,16384,16384,0,0,0,0,16384,16384,16384,16384,16384,0,0,0},{0,16384,16384,16384,1,1,16384,16384,0,0,0,16384,16384,16384,16384,16384,0,0,0,0,0,0,0,0,0,0,0,16384,1,16384,16384,0,0,0,0,16384,16384,16384,0,0,0,0,0,0,16384,16384,16384,16384,0,0,0},{0,0,0,16384,16384,16384,16384,0,0,0,0,0,0,16384,16384,0,0,0,0,0,0,0,0,0,0,0,0,16384,16384,16384,16384,0,0,0,0,0,0,0,0,0,0,0,0,0,16384,1,1,16384,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16384,16384,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16384,16384,1,16384,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16384,16384,16384,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16384,16384,16384,0,0,0},{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,16384,0,0,0,0}}
+	local scr_x, scr_y = term.getSize()
+	local function fade(col1, col2, delay)
+		local oldeTXT, oldeBG = term.getTextColor(), term.getBackgroundColor()
+		term.setBackgroundColor(col1)
+		term.setTextColor(col2)
+		term.clear()
+		sleep(delay or 0)
+		for a = 1, 2 do
+			for y = 1, scr_y do
+				term.setCursorPos((y%2),y)
+				term.write(("\127 "):rep(math.ceil(scr_x/2)+1))
+			end
+			sleep(delay or 0)
+			if a == 1 then
+				for y = 1, scr_y do
+					term.setCursorPos(1,y)
+					term.write(("\127"):rep(scr_x))
+				end
+			else
+				term.clear()
+			end
+			sleep(delay or 0)
+			term.setBackgroundColor(col2)
+			term.setTextColor(col1)
+		end
+		sleep(0 or delay)
+		term.setTextColor(oldeTXT)
+		term.setBackgroundColor(oldeBG)
+	end
+	
+	local topcenterwrite = function(txt)
+		term.setCursorPos((scr_x/2)-(#txt/2) + 1,1)
+		term.write(txt)
+	end
+	
+	for y = 1, #blood do
+		paintutils.drawImage(blood,1,y-#blood)
+		sleep(0)
+	end
+	term.setTextColor(colors.white)
+	local script = {
+		"You feel the last of",
+		"your life drain away",
+		"as your body succumbs to",
+		"the deeply inflicted wounds",
+		"you failed to prevent.",
+		"",
+		"Your lungs collapse.",
+		"",
+		"GAME OVER"
+	}
+	for y = scr_y, 1, -2 do
+		term.scroll(-2)
+		if script[y-4] then
+			topcenterwrite(script[y-4])
+		end
+		sleep(0)
+	end
+	--sleep(0.5)
+	os.pullEvent("char")
+	term.clear()
+	sleep(0.1)
+	fade(colors.red,colors.black,0.1)
+	sleep(0.2)
+	term.setBackgroundColor(colors.black)
+	term.setCursorPos(1,1)
+	term.clear()
+end
+
 local function gameUpdate()
 	local timeFromLastUpdate = os.clock()
 	local avgUpdateSpeed = 0
@@ -513,8 +614,12 @@ local function gameUpdate()
 
 		sleep(0)
 
-		if (endGame == true or hearts <= 0) then
-			sleep(3)
+		if (hearts <= 0) then
+			finishMode = "death"
+			break
+		end
+		if (endGame == true) then
+			finishMode = "finish"
 			break
 		end
 	end
@@ -613,6 +718,12 @@ local function viewHighscores(endless)
 	os.pullEventRaw()
 end
 
+local function startGame()
+	loadSettings()
+	ThreeDFrame:useBLittle(blittleOn)
+	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
+end
+
 local function newGameNormal()
 	score = 0
 	time = 0
@@ -628,10 +739,7 @@ local function newGameNormal()
 	backgroundColor1 = colors.orange
 	backgroundColor2 = colors.lightGray
 
-	loadSettings()
-	ThreeDFrame:useBLittle(blittleOn)
-
-	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
+	startGame()
 
 	if (hearts > 0) then
 		term.setBackgroundColor(colors.black)
@@ -668,6 +776,8 @@ local function newGameNormal()
 		if (submitScore == "true") then
 			viewHighscores(false)
 		end
+	else
+		deathAnimation()
 	end
 end
 
@@ -687,12 +797,9 @@ local function newGameEndless()
 	backgroundColor1 = colors.orange
 	backgroundColor2 = colors.lightGray
 
-	loadSettings()
-	ThreeDFrame:useBLittle(blittleOn)
-
-	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
+	startGame()
 	score = score + levelCount * 22
-
+	deathAnimation()
 	term.setBackgroundColor(colors.black)
 	term.setTextColor(colors.red)
 	term.clear()
