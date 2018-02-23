@@ -1,7 +1,7 @@
 
 -- Made by Xelostar: https://www.youtube.com/channel/UCDE2STpSWJrIUyKtiYGeWxw
 
-local path = "/"..shell.dir()
+local path = "/"..fs.getDir(shell.getRunningProgram())
 
 os.loadAPI(path.."/ThreeD")
 os.loadAPI(path.."/bufferAPI")
