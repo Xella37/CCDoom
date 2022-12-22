@@ -1,5 +1,9 @@
 
--- Made by Xelostar: https://www.youtube.com/channel/UCDE2STpSWJrIUyKtiYGeWxw
+-- Made by Xella
+
+-- Ugly old code
+-- Couldn't be bothered to fix everything when updating to the new Pine3D
+-- Don't mod this mess. Please just make your own game which has readable code
 
 local path = "/"..fs.getDir(shell.getRunningProgram())
 local Pine3D = require("Pine3D-minified")
@@ -20,6 +24,7 @@ local fire = paintutils.loadImage(path.."/images/fire")
 local bfire = paintutils.loadImage(path.."/images/bfire")
 local shootCooldown = 3 / 16
 local lastShot = os.clock() - shootCooldown
+local resetGame = false
 
 local playerX = 0
 local playerY = 0
@@ -405,7 +410,7 @@ local function inputPlayer(time)
 end
 
 local function smoothKeyInput()
-	keysDown = {}
+	--keysDown = {}
 	while true do
 		local sEvent, key = os.pullEvent()
 		if sEvent == "key" then
@@ -425,6 +430,8 @@ local function smoothKeyInput()
 			elseif (key == keys.q) then
 				playerDirectionHor = playerDirectionHor + 180
 				playerDirectionVer = -playerDirectionVer
+			elseif key == keys.leftCtrl then
+				resetGame = true
 			end
 		elseif sEvent == "key_up" then
 			keysDown[key] = nil
@@ -626,13 +633,13 @@ end
 
 local function gameUpdate()
 	local timeFromLastUpdate = os.clock()
-	local avgUpdateSpeed = 0
-	local updateCount = 0
-	local timeOff = 0
+	--local avgUpdateSpeed = 0
+	--local updateCount = 0
+	--local timeOff = 0
 
 	while true do
 		local currentTime = os.clock()
-		if (currentTime > timeFromLastUpdate) then
+		--[[if (currentTime > timeFromLastUpdate) then
 			updateGame(currentTime - timeFromLastUpdate - timeOff)
 			inputPlayer(currentTime - timeFromLastUpdate - timeOff)
 			avgUpdateSpeed = (currentTime - timeFromLastUpdate) / (updateCount + 1)
@@ -642,10 +649,20 @@ local function gameUpdate()
 			updateGame(avgUpdateSpeed)
 			newTimeOff = timeOff + avgUpdateSpeed
 			newUpdateCount = updateCount + 1
-		end
+		end]]--
+		local dt = currentTime - timeFromLastUpdate
+		updateGame(dt)
+		inputPlayer(dt)
 		timeFromLastUpdate = currentTime
 
-		sleep(0)
+		if resetGame then
+			finishMode = "reset"
+			break
+		end
+
+		--sleep(0)
+		os.queueEvent("gameupdate")
+		os.pullEvent("gameupdate")
 
 		if (hearts <= 0) then
 			finishMode = "death"
@@ -775,6 +792,7 @@ end
 
 local function startGame()
 	loadSettings()
+	resetGame = false
 	ThreeDFrame:highResMode(blittleOn)
 	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
 end
@@ -795,6 +813,10 @@ local function newGameNormal()
 	backgroundColor2 = colors.lightGray
 
 	startGame()
+
+	if finishMode == "reset" then
+		return newGameNormal()
+	end
 
 	if (hearts > 0) then
 		term.setBackgroundColor(colors.black)
@@ -852,6 +874,11 @@ local function newGameEndless()
 	backgroundColor2 = colors.lightGray
 
 	startGame()
+
+	if finishMode == "reset" then
+		return newGameNormal()
+	end
+
 	score = score + levelCount * 22
 	deathAnimation()
 	term.setBackgroundColor(colors.black)
