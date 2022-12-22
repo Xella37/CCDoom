@@ -2,9 +2,7 @@
 -- Made by Xelostar: https://www.youtube.com/channel/UCDE2STpSWJrIUyKtiYGeWxw
 
 local path = "/"..fs.getDir(shell.getRunningProgram())
-
-os.loadAPI(path.."/ThreeD")
-os.loadAPI(path.."/bufferAPI")
+local Pine3D = require("Pine3D-minified")
 os.loadAPI(path.."/blittle")
 
 local objects = {}
@@ -20,8 +18,8 @@ local hearts = 5
 
 local fire = paintutils.loadImage(path.."/images/fire")
 local bfire = paintutils.loadImage(path.."/images/bfire")
-local shootCooldown = 1/20 / 16
-local lastShot = os.time() - shootCooldown
+local shootCooldown = 3 / 16
+local lastShot = os.clock() - shootCooldown
 
 local playerX = 0
 local playerY = 0
@@ -52,21 +50,25 @@ local FoV = 90
 local playerDirectionHor = 0
 local playerDirectionVer = 0
 
-local screenWidth, screenHeight = term.getSize()
-
-local backgroundColor1 = colors.orange
-local backgroundColor2 = colors.lightGray
-
 local finishMode
+
+local termWidth, termHeight = term.getSize()
 
 function round(num, numDecimalPlaces)
 	local mult = 10^(numDecimalPlaces or 0)
 	return math.floor(num * mult + 0.5) / mult
 end
 
-local ThreeDFrame = ThreeD.newFrame(1, 1, screenWidth, screenHeight, FoV, playerX, playerY + 0.5, playerZ, playerDirectionVer, playerDirectionHor, colors.lime, path.."/models")
+local ThreeDFrame = Pine3D.newFrame()
 local blittleOn = true
-ThreeDFrame:useBLittle(blittleOn)
+ThreeDFrame:highResMode(blittleOn)
+ThreeDFrame:setBackgroundColor(colors.lightGray)
+
+local environmentObjects = {
+	ThreeDFrame:newObject(Pine3D.models:plane({size = 100, y = -0.1, color = colors.orange}))
+}
+
+local latestScore = {}
 
 local function min(a, b)
 	if (a <= b) then
@@ -95,7 +97,7 @@ local function loadSettings()
 	else
 		blittleOn = false
 	end
-	ThreeDFrame:useBLittle(blittleOn)
+	ThreeDFrame:highResMode(blittleOn)
 end
 
 local function saveSettings()
@@ -111,7 +113,7 @@ local function loadLevel(levelname)
 		objects = {}
 	end
 	local level = paintutils.loadImage(path.."/levels/"..levelname)
-	
+
 	for z, row in pairs(level) do
 		for x, value in pairs(row) do
 			if (value ~= nil and value > 0) then
@@ -121,22 +123,37 @@ local function loadLevel(levelname)
 					playerZ = z
 				end
 				if (reloadedLevel == false) then
+					local object = nil
 					if (value == colors.orange) then
-						table.insert(objects, {model = "wallz", x = x, y = 0, z = z, rotationY = 0, solid = true})
+						object = ThreeDFrame:newObject("models/wallz", x, 0, z)
+						object.solid = true
 					elseif (value == colors.magenta) then
-						table.insert(objects, {model = "wallx", x = x, y = 0, z = z, rotationY = 0, solid = true})
+						object = ThreeDFrame:newObject("models/wallx", x, 0, z)
+						object.solid = true
 					elseif (value == colors.lightBlue) then
-						table.insert(objects, {model = "wallxz", x = x, y = 0, z = z, rotationY = 0, solid = true})
+						object = ThreeDFrame:newObject("models/wallxz", x, 0, z)
+						object.solid = true
 					elseif (value == colors.red) then
-						table.insert(objects, {model = "doorz", x = x, y = 0, z = z, rotationY = 0, solid = false})
+						object = ThreeDFrame:newObject("models/doorz", x, 0, z)
+						object.model = "doorz"
 					elseif (value == colors.green) then
-						table.insert(objects, {model = "doorx", x = x, y = 0, z = z, rotationY = 0, solid = false})
+						object = ThreeDFrame:newObject("models/doorx", x, 0, z)
+						object.model = "doorx"
 					elseif (value == colors.yellow) then
-						table.insert(objects, {model = "enemy1", x = x, y = 0, z = z, rotationY = 0, solid = false, lastHit = os.time()})
+						object = ThreeDFrame:newObject("models/enemy1", x, 0, z)
+						object.model = "enemy1"
+						object.lastHit = os.clock()
 					elseif (value == colors.lime) then
-						table.insert(objects, {model = "enemy2", x = x, y = 0, z = z, rotationY = 0, solid = false, lastHit = os.time() - 1/20})
+						object = ThreeDFrame:newObject("models/enemy2", x, 0, z)
+						object.model = "enemy2"
+						object.lastHit = os.clock() - 1/20
 					elseif (value == colors.pink) then
-						table.insert(objects, {model = "emerald", x = x, y = 0, z = z, rotationY = 45, solid = true})
+						object = ThreeDFrame:newObject("models/emerald", x, 0, z, 0, 45, 0)
+						object.solid = true
+					end
+
+					if object then
+						objects[#objects+1] = object
 					end
 				end
 			end
@@ -158,10 +175,10 @@ end
 
 local function free(x, y, z)
 	for objectNr, object in pairs(objects) do
-		if (object.solid == true) then
-			if (x >= object.x - 0.5 and x <= object.x + 0.5) then
-				if (y >= object.y and y <= object.y + 1) then
-					if (z >= object.z - 0.5 and z <= object.z + 0.5) then
+		if object.solid then
+			if (x >= object[1] - 0.5 and x <= object[1] + 0.5) then
+				if (y >= object[2] and y <= object[2] + 1) then
+					if (z >= object[3] - 0.5 and z <= object[3] + 0.5) then
 						return false
 					end
 				end
@@ -172,33 +189,34 @@ local function free(x, y, z)
 end
 
 local function rendering()
-	ThreeDFrame:setCamera(playerX, playerY + 0.5, playerZ, playerDirectionHor, playerDirectionVer)
-	
+	ThreeDFrame:setCamera(playerX, playerY + 0.5, playerZ, 0, playerDirectionHor, playerDirectionVer)
+
 	while true do
-		ThreeDFrame:loadGround(backgroundColor1)
-		ThreeDFrame:loadSky(backgroundColor2)
-		ThreeDFrame:loadObjects(objects)
-		if (blittleOn == true) then
-			if (lastShot > os.time() - shootCooldown) then
-				ThreeDFrame.buffer:loadImage(29+gunbobX, 8+gunbobY, bfire, true)
-				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, bgunf, true)
+		--ThreeDFrame:loadGround(backgroundColor1)
+		--ThreeDFrame:loadSky(backgroundColor2)
+		ThreeDFrame:drawObjects(environmentObjects)
+		ThreeDFrame:drawObjects(objects)
+		if (blittleOn) then
+			if (lastShot > os.clock() - shootCooldown) then
+				ThreeDFrame.buffer:image(29+gunbobX+(termWidth-51), 8+gunbobY+(termHeight-19), bfire, true)
+				ThreeDFrame.buffer:image(32+gunbobX+(termWidth-51), 10+gunbobY+(termHeight-19), bgunf, true)
 			else
-				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, bgun, true)
+				ThreeDFrame.buffer:image(32+gunbobX+(termWidth-51), 10+gunbobY+(termHeight-19), bgun, true)
 			end
 
 			for i = 1, hearts do
-				ThreeDFrame.buffer:loadImage(2 + (i-1) * 6, 2, bheart, true)
+				ThreeDFrame.buffer:image(2 + (i-1) * 6, 2, bheart, true)
 			end
 		else
-			if (lastShot > os.time() - shootCooldown) then
-				ThreeDFrame.buffer:loadImage(29+gunbobX, 8+gunbobY, fire, false)
-				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, gunf, false)
+			if (lastShot > os.clock() - shootCooldown) then
+				ThreeDFrame.buffer:image(29+gunbobX+(termWidth-51), 8+gunbobY+(termHeight-19), fire, false)
+				ThreeDFrame.buffer:image(32+gunbobX+(termWidth-51), 10+gunbobY+(termHeight-19), gunf, false)
 			else
-				ThreeDFrame.buffer:loadImage(32+gunbobX, 10+gunbobY, gun, false)
+				ThreeDFrame.buffer:image(32+gunbobX+(termWidth-51), 10+gunbobY+(termHeight-19), gun, false)
 			end
-			
+
 			for i = 1, hearts do
-				ThreeDFrame.buffer:loadImage(2 + (i-1) * 6, 2, heart, false)
+				ThreeDFrame.buffer:image(2 + (i-1) * 6, 2, heart, false)
 			end
 		end
 		ThreeDFrame:drawBuffer()
@@ -227,8 +245,9 @@ local function shoot()
 
 		for objectNr, object in pairs(objects) do
 			if (object.model == "enemy1" or object.model == "enemy2") then
-				if ((math.abs(bulletX - object.x)^2 + math.abs(bulletZ - object.z))^0.5 <= 0.5) then
-					object.model = "corpse"
+				if ((math.abs(bulletX - object[1])^2 + math.abs(bulletZ - object[3]))^0.5 <= 0.5) then
+					object:setModel("models/corpse")
+					object.model = "models/corpse"
 					hit = true
 					score = score + 10
 					break
@@ -236,7 +255,7 @@ local function shoot()
 			end
 		end
 
-		if (hit == true) then
+		if (hit) then
 			break
 		end
 	end
@@ -289,17 +308,17 @@ local function inputPlayer(time)
 		playerXvel = playerSpeed * math.cos(math.rad(playerDirectionHor + 90)) + playerXvel
 		playerZvel = playerSpeed * math.sin(math.rad(playerDirectionHor + 90)) + playerZvel
 	end
-	
+
 	if (keysDown[keys.space]) then
-		if (lastShot < os.time() - shootCooldown) then
-			lastShot = os.time()
+		if (lastShot < os.clock() - shootCooldown) then
+			lastShot = os.clock()
 			shoot()
 		end
 	end
-	
+
 	if (math.abs(playerXvel) > 0.5) or (math.abs(playerZvel) > 0.5) then
 		if gunbobby == -1 then gunbobby = 1 end
-		gunbobby = (gunbobby + (math.abs(playerXvel) + math.abs(playerZvel)) / 16) % 360
+		gunbobby = (gunbobby + (math.abs(playerXvel*time) + math.abs(playerZvel*time)) * 2) % 360
 	else
 		gunbobby = -1
 	end
@@ -310,18 +329,18 @@ local function inputPlayer(time)
 		gunbobX = round(math.sin(gunbobby),1)
 		gunbobY = round(math.abs(math.cos(gunbobby)),1)
 	end
-	
-	if (free(playerX + playerXvel * time, playerY, playerZ) == true) then
+
+	if (free(playerX + playerXvel * time, playerY, playerZ)) then
 		playerX = playerX + playerXvel * time
 	end
-	if (free(playerX, playerY, playerZ + playerZvel * time) == true) then
+	if (free(playerX, playerY, playerZ + playerZvel * time)) then
 		playerZ = playerZ + playerZvel * time
 	end
 
 	for _, object in pairs(objects) do
 		if (object.model == "doorx" or object.model == "doorz") then
-			local dx = object.x - playerX
-			local dz = object.z - playerZ
+			local dx = object[1] - playerX
+			local dz = object[3] - playerZ
 			local distance = math.sqrt(dx^2 + dz^2)
 
 			if (distance < 0.5) then
@@ -351,7 +370,7 @@ local function inputPlayer(time)
 					elseif (loadedLevel == "level8" and object.model == "doorx") then
 						loadedLevel = "level9"
 						reloadedLevel = false
-						
+
 						backgroundColor1 = colors.lime
 						backgroundColor2 = colors.lightBlue
 
@@ -359,12 +378,12 @@ local function inputPlayer(time)
 						playerDirectionVer = 0
 
 						endGame = true
-						score = score + hearts * 16 + 400 - 8*min(50, time)
+						score = score + hearts * 16 + 400 - 8*min(50, scoreTime)
 					end
-					
+
 					loadLevel(loadedLevel)
 				else
-					if (object.model == "doorx" and xDoor == true) then
+					if (object.model == "doorx" and xDoor) then
 						xDoor = false
 						loadRandomLevel(xDoor)
 						levelCount = levelCount + 1
@@ -373,20 +392,22 @@ local function inputPlayer(time)
 						loadRandomLevel(xDoor)
 						levelCount = levelCount + 1
 					else
+						reloadedLevel = true
 						loadLevel(loadedLevel)
+						reloadedLevel = false
 					end
 				end
 			end
 		end
 	end
 
-	ThreeDFrame:setCamera(playerX, playerY + 0.5, playerZ, playerDirectionHor, playerDirectionVer)
+	ThreeDFrame:setCamera(playerX, playerY + 0.5, playerZ, 0, playerDirectionHor, playerDirectionVer)
 end
 
 local function smoothKeyInput()
 	keysDown = {}
 	while true do
-		local sEvent, key = os.pullEventRaw()
+		local sEvent, key = os.pullEvent()
 		if sEvent == "key" then
 			keysDown[key] = true
 			if (key == keys.g) then
@@ -394,11 +415,11 @@ local function smoothKeyInput()
 				if (blittleOn == false) then
 					blittleOn = true
 					graphics = "Good"
-					ThreeDFrame:useBLittle(true)
+					ThreeDFrame:highResMode(true)
 				else
 					blittleOn = false
 					graphics = "Bad"
-					ThreeDFrame:useBLittle(false)
+					ThreeDFrame:highResMode(false)
 				end
 				saveSettings()
 			elseif (key == keys.q) then
@@ -407,6 +428,9 @@ local function smoothKeyInput()
 			end
 		elseif sEvent == "key_up" then
 			keysDown[key] = nil
+		elseif sEvent == "term_resize" then
+			termWidth, termHeight = term.getSize()
+			ThreeDFrame:setSize(1, 1, termWidth, termHeight)
 		end
 	end
 end
@@ -443,9 +467,9 @@ local function updateGame(time)
 
 	for objectNr, object in pairs(objects) do
 		if (object.model == "enemy1") then
-			local dx = object.x - playerX
-			local dz = object.z - playerZ
-			
+			local dx = object[1] - playerX
+			local dz = object[3] - playerZ
+
 			if (dz == 0) then
 				dz = 0.00001
 			end
@@ -465,18 +489,18 @@ local function updateGame(time)
 				end
 			end
 
-			object.rotationY = playerDir + 90
+			object:setRot(nil, math.rad(playerDir + 90), nil)
 
-			if (object.lastHit < os.time() - 1/20) then
-				if (lineOfSight(object.x, object.z) == true) then
-					object.lastHit = os.time()
+			if (object.lastHit < os.clock() - 3) then
+				if (lineOfSight(object[1], object[3])) then
+					object.lastHit = os.clock()
 					hearts = hearts - 1
 				end
 			end
 		elseif (object.model == "enemy2") then
-			local dx = object.x - playerX
-			local dz = object.z - playerZ
-			
+			local dx = object[1] - playerX
+			local dz = object[3] - playerZ
+
 			if (dz == 0) then
 				dz = 0.00001
 			end
@@ -496,23 +520,23 @@ local function updateGame(time)
 				end
 			end
 
-			object.rotationY = playerDir + 90
+			object:setRot(nil, math.rad(playerDir + 90), nil)
 			local playerDistance = math.sqrt(dx^2 + dz^2)
-				
+
 			if (playerDistance >= 0.5) then
 				local edX = -enemySpeed * math.sin(math.rad(playerDir)) * time
 				local edZ = -enemySpeed * math.cos(math.rad(playerDir)) * time
-				if (free(object.x + edX, object.y, object.z) == true) then
-					object.x = object.x + edX
+				if (free(object[1] + edX, object[2], object[3])) then
+					object[1] = object[1] + edX
 				end
-				if (free(object.x, object.y, object.z + edZ) == true) then
-					object.z = object.z + edZ
+				if (free(object[1], object[2], object[3] + edZ)) then
+					object[3] = object[3] + edZ
 				end
 			end
 
-			if (object.lastHit < os.time() - 1/20) then
+			if (object.lastHit < os.clock() - 3) then
 				if (playerDistance < 1) then
-					object.lastHit = os.time()
+					object.lastHit = os.clock()
 					hearts = hearts - 1
 				end
 			end
@@ -551,16 +575,19 @@ local function deathAnimation()
 		term.setTextColor(oldeTXT)
 		term.setBackgroundColor(oldeBG)
 	end
-	
+
 	local topcenterwrite = function(txt)
 		term.setCursorPos((scr_x/2)-(#txt/2) + 1,1)
 		term.write(txt)
 	end
-	
-	for y = 1, #blood do
-		paintutils.drawImage(blood,1,y-#blood)
-		sleep(0)
+
+	if scr_x == 51 then
+		for y = 1, #blood do
+			paintutils.drawImage(blood,1,y-#blood)
+			sleep(0.1)
+		end
 	end
+	term.setBackgroundColor(colors.red)
 	term.setTextColor(colors.white)
 	local script = {
 		"You feel the last of",
@@ -579,7 +606,7 @@ local function deathAnimation()
 		if script[y-4] then
 			topcenterwrite(script[y-4])
 		end
-		if (skip == true) then
+		if (skip) then
 			sleep(0)
 			skip = false
 		else
@@ -624,7 +651,7 @@ local function gameUpdate()
 			finishMode = "death"
 			break
 		end
-		if (endGame == true) then
+		if (endGame) then
 			finishMode = "finish"
 			break
 		end
@@ -636,14 +663,14 @@ local function viewHighscores(endless)
 	term.setTextColor(colors.yellow)
 	term.clear()
 
-	term.setCursorPos(12, 10)
+	term.setCursorPos(12+(termWidth-51)/2, 10)
 	write("Connecting to the database...")
 
 	local rawData = {}
 	if (endless == false) then
-		rawData = http.get("https://xelonet.000webhostapp.com/getHighscores.php")
+		rawData = http.get("https://doom.pine3d.cc/api/highscores")
 	else
-		rawData = http.get("https://xelonet.000webhostapp.com/getHighscoresEndless.php")
+		rawData = http.get("https://doom.pine3d.cc/api/highscoresendless")
 	end
 
 	if (rawData == nil) then
@@ -656,11 +683,11 @@ local function viewHighscores(endless)
 		local rawData2 = rawData.readAll()
 
 		term.clear()
-		term.setCursorPos(2, 2)
+		term.setCursorPos(2+(termWidth-51)/2, 2)
 		write("Online Highscores:")
 
 		term.setTextColor(colors.red)
-		term.setCursorPos(2, 4)
+		term.setCursorPos(2+(termWidth-51)/2, 4)
 		if (endless == false) then
 			write("#  Nickname             Score  Time    Date")
 		else
@@ -671,25 +698,39 @@ local function viewHighscores(endless)
 		for record in rawData2:gmatch("[^~]*~") do
 			record = record:gsub("~", "")
 
-			term.setCursorPos(2, 6 + recordNr)
+			local values = {}
+			for recordField in record:gmatch("[^;]*;") do
+				values[#values+1] = recordField
+			end
+
+			local val2 = values[2]:gsub(";", "")
+			local val3 = values[3]:gsub(";", "")
+
+			if values[1]:gsub(";", "") == latestScore[1] and tonumber(val2) == math.floor(latestScore[2]*10 + 0.5)/10 and tonumber(val3) == math.floor(latestScore[3]*100 + 0.5)/100 then
+				term.setTextColor(colors.white)
+			else
+				term.setTextColor(colors.orange)
+			end
+
+			term.setCursorPos(2+(termWidth-51)/2, 6 + recordNr)
 			write(recordNr + 1)
 
-			local catNr = 0
-			for cat in record:gmatch("[^;]*;") do
-				if (catNr == 0) then
-					term.setCursorPos(5, 6 + recordNr)
-				elseif (catNr == 1) then
-					term.setCursorPos(26, 6 + recordNr)
-				elseif (catNr == 2) then
-					term.setCursorPos(33, 6 + recordNr)
-				elseif (catNr == 3) then
-					term.setCursorPos(41, 6 + recordNr)
+			for i = 1, #values do
+				local value = values[i]
+				if (i == 1) then
+					term.setCursorPos(5+(termWidth-51)/2, 6 + recordNr)
+				elseif (i == 2) then
+					term.setCursorPos(26+(termWidth-51)/2, 6 + recordNr)
+				elseif (i == 3) then
+					term.setCursorPos(33+(termWidth-51)/2, 6 + recordNr)
+				elseif (i == 4) then
+					term.setCursorPos(41+(termWidth-51)/2, 6 + recordNr)
 					local year = ""
 					local month = ""
 					local day = ""
 
 					local partNr = 0
-					for part in cat:gmatch("[^-]*") do
+					for part in value:gmatch("[^-]*") do
 						if (partNr == 0) then
 							year = part
 						elseif (partNr == 2) then
@@ -701,15 +742,14 @@ local function viewHighscores(endless)
 						partNr = partNr + 1
 					end
 
-					cat = day.."-"..month.."-"..year
+					value = day.."-"..month.."-"..year
 				end
 
-				write(cat:gsub(";", ""))
-				catNr = catNr + 1
+				write(value:gsub(";", ""))
 			end
 			recordNr = recordNr + 1
 
-			if (recordNr >= 11) then
+			if (recordNr >= 11 + (termHeight-19)) then
 				break
 			end
 		end
@@ -718,21 +758,30 @@ local function viewHighscores(endless)
 	sleep(1)
 
 	term.setTextColor(colors.yellow)
-	term.setCursorPos(2, 18)
+	term.setCursorPos(2+(termWidth-51)/2, termHeight-1)
 	write("Press any key to close...")
 	sleep(0.5)
-	os.pullEventRaw()
+	while true do
+		local event, key = os.pullEvent()
+		if event == "term_resize" then
+			termWidth, termHeight = term.getSize()
+			ThreeDFrame:setSize(1, 1, termWidth, termHeight)
+			return viewHighscores(endless)
+		elseif event == "key" and key ~= keys.leftAlt and key ~= keys.f2 then
+			return
+		end
+	end
 end
 
 local function startGame()
 	loadSettings()
-	ThreeDFrame:useBLittle(blittleOn)
+	ThreeDFrame:highResMode(blittleOn)
 	parallel.waitForAny(smoothKeyInput, rendering, gameUpdate)
 end
 
 local function newGameNormal()
 	score = 0
-	time = 0
+	scoreTime = 0
 	hearts = 5
 	endGame = false
 	playerDirectionHor = 0
@@ -757,27 +806,26 @@ local function newGameNormal()
 
 		term.setTextColor(colors.orange)
 		term.setCursorPos(2, 4)
-		write("Score: "..score)
+		write("Score: "..(math.floor(score*10+0.5)/10))
 		term.setCursorPos(2, 5)
-		write("Time: "..scoreTime)
+		write("Time: "..(math.floor(scoreTime*100+0.5)/100))
 
 		if (submitScore == "true") then
-			local result = http.get("https://xelonet.000webhostapp.com/newScore.php?name="..textutils.urlEncode(username).."&score="..score.."&time="..scoreTime)
+			latestScore = {username, score, scoreTime}
+			local result = http.get("https://doom.pine3d.cc/api/newscore?name="..textutils.urlEncode(username).."&score="..score.."&time="..scoreTime)
 			if (result == nil) then
 				term.setBackgroundColor(colors.black)
 				term.setTextColor(colors.red)
 				term.clear()
 				term.setCursorPos(2, 2)
 				write("Server is not reachable. Score has not been submitted.")
-				sleep(3)
 			end
-		else
-			sleep(1)
 		end
+		sleep(2)
 		term.setTextColor(colors.yellow)
-		term.setCursorPos(2, 18)
+		term.setCursorPos(2, termHeight-1)
 		write("Press any key to close...")
-		os.pullEventRaw()
+		os.pullEvent("key")
 
 		if (submitScore == "true") then
 			viewHighscores(false)
@@ -815,27 +863,26 @@ local function newGameEndless()
 
 	term.setTextColor(colors.orange)
 	term.setCursorPos(2, 4)
-	write("Score: "..score)
+	write("Score: "..(math.floor(score*10+0.5)/10))
 	term.setCursorPos(2, 5)
 	write("Levels: "..levelCount)
 
 	if (submitScore == "true") then
-		local result = http.get("https://xelonet.000webhostapp.com/newScoreEndless.php?name="..textutils.urlEncode(username).."&score="..score.."&levels="..levelCount)
+		latestScore = {username, score, levelCount}
+		local result = http.get("https://doom.pine3d.cc/api/newscoreendless?name="..textutils.urlEncode(username).."&score="..score.."&levels="..levelCount)
 		if (result == nil) then
 			term.setBackgroundColor(colors.black)
 			term.setTextColor(colors.red)
 			term.clear()
 			term.setCursorPos(2, 2)
 			write("Server is not reachable. Score has not been submitted.")
-			sleep(3)
 		end
-	else
-		sleep(1)
 	end
+	sleep(2)
 	term.setTextColor(colors.yellow)
-	term.setCursorPos(2, 18)
+	term.setCursorPos(2, termHeight-1)
 	write("Press any key to close...")
-	os.pullEventRaw()
+	os.pullEvent("key")
 
 	if (submitScore == "true") then
 		viewHighscores(true)
@@ -847,51 +894,68 @@ local function newGame()
 	term.setTextColor(colors.red)
 	term.clear()
 
-	term.setCursorPos(21, 8)
+	term.setCursorPos(21+(termWidth-51)/2, 8)
 	write("Normal Mode")
 
-	term.setCursorPos(20, 10)
+	term.setCursorPos(20+(termWidth-51)/2, 10)
 	write("Endless Mode")
 
-	term.setCursorPos(24, 12)
+	term.setCursorPos(24+(termWidth-51)/2, 12)
 	write("Back")
 
 	local selected2 = 0
 	while true do
 		term.setTextColor(colors.yellow)
-		term.setCursorPos(19, 8)
+		term.setCursorPos(19+(termWidth-51)/2, 8)
 		if (selected2 == 0) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(18, 10)
+		term.setCursorPos(18+(termWidth-51)/2, 10)
 		if (selected2 == 1) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(22, 12)
+		term.setCursorPos(22+(termWidth-51)/2, 12)
 		if (selected2 == 2) then
 			write(">")
 		else
 			write(" ")
 		end
 
-		local event, key = os.pullEventRaw("key")
-		if (key == keys.w or key == keys.up) then
-			selected2 = (selected2 - 1 + 3) % 3
-		elseif (key == keys.s or key == keys.down) then
-			selected2 = (selected2 + 1) % 3
-		elseif (key == keys.space or key == keys.enter) then
-			if (selected2 == 0) then
-				newGameNormal()
-			elseif (selected2 == 1) then
-				newGameEndless()
+		local event, key = os.pullEvent()
+		if event == "key" then
+			if (key == keys.w or key == keys.up) then
+				selected2 = (selected2 - 1 + 3) % 3
+			elseif (key == keys.s or key == keys.down) then
+				selected2 = (selected2 + 1) % 3
+			elseif (key == keys.space or key == keys.enter) then
+				if (selected2 == 0) then
+					newGameNormal()
+				elseif (selected2 == 1) then
+					newGameEndless()
+				end
+				break
 			end
-			break
+		elseif event == "term_resize" then
+			termWidth, termHeight = term.getSize()
+			ThreeDFrame:setSize(1, 1, termWidth, termHeight)
+			term.setBackgroundColor(colors.black)
+			term.setTextColor(colors.red)
+			term.clear()
+
+			term.setCursorPos(21+(termWidth-51)/2, 8)
+			write("Normal Mode")
+
+			term.setCursorPos(20+(termWidth-51)/2, 10)
+			write("Endless Mode")
+
+			term.setCursorPos(24+(termWidth-51)/2, 12)
+			write("Back")
 		end
-	end	
+	end
 end
 
 local function showHighscores()
@@ -899,51 +963,68 @@ local function showHighscores()
 	term.setTextColor(colors.red)
 	term.clear()
 
-	term.setCursorPos(21, 8)
+	term.setCursorPos(21+(termWidth-51)/2, 8)
 	write("Normal Mode")
 
-	term.setCursorPos(20, 10)
+	term.setCursorPos(20+(termWidth-51)/2, 10)
 	write("Endless Mode")
 
-	term.setCursorPos(24, 12)
+	term.setCursorPos(24+(termWidth-51)/2, 12)
 	write("Back")
 
 	local selected2 = 0
 	while true do
 		term.setTextColor(colors.yellow)
-		term.setCursorPos(19, 8)
+		term.setCursorPos(19+(termWidth-51)/2, 8)
 		if (selected2 == 0) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(18, 10)
+		term.setCursorPos(18+(termWidth-51)/2, 10)
 		if (selected2 == 1) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(22, 12)
+		term.setCursorPos(22+(termWidth-51)/2, 12)
 		if (selected2 == 2) then
 			write(">")
 		else
 			write(" ")
 		end
 
-		local event, key = os.pullEventRaw("key")
-		if (key == keys.w or key == keys.up) then
-			selected2 = (selected2 - 1 + 3) % 3
-		elseif (key == keys.s or key == keys.down) then
-			selected2 = (selected2 + 1) % 3
-		elseif (key == keys.space or key == keys.enter) then
-			if (selected2 == 0) then
-				viewHighscores(false)
-			elseif (selected2 == 1) then
-				viewHighscores(true)
+		local event, key = os.pullEvent()
+		if event == "key" then
+			if (key == keys.w or key == keys.up) then
+				selected2 = (selected2 - 1 + 3) % 3
+			elseif (key == keys.s or key == keys.down) then
+				selected2 = (selected2 + 1) % 3
+			elseif (key == keys.space or key == keys.enter) then
+				if (selected2 == 0) then
+					viewHighscores(false)
+				elseif (selected2 == 1) then
+					viewHighscores(true)
+				end
+				break
 			end
-			break
+		elseif event == "term_resize" then
+			termWidth, termHeight = term.getSize()
+			ThreeDFrame:setSize(1, 1, termWidth, termHeight)
+			term.setBackgroundColor(colors.black)
+			term.setTextColor(colors.red)
+			term.clear()
+
+			term.setCursorPos(21+(termWidth-51)/2, 8)
+			write("Normal Mode")
+
+			term.setCursorPos(20+(termWidth-51)/2, 10)
+			write("Endless Mode")
+
+			term.setCursorPos(24+(termWidth-51)/2, 12)
+			write("Back")
 		end
-	end	
+	end
 end
 
 local function drawMenu()
@@ -952,23 +1033,23 @@ local function drawMenu()
 	term.setBackgroundColor(colors.black)
 	term.setTextColor(colors.red)
 	term.clear()
-	blittle.draw(blogo, 12, 3)
+	blittle.draw(blogo, 12+(termWidth-51)/2, 3)
 
-	term.setCursorPos(21, 10)
+	term.setCursorPos(21+(termWidth-51)/2, 10)
 	write("Start Game")
 
-	term.setCursorPos(17, 12)
+	term.setCursorPos(17+(termWidth-51)/2, 12)
 	write("Online Highscores")
 
-	term.setCursorPos(22, 14)
+	term.setCursorPos(22+(termWidth-51)/2, 14)
 	write("Settings")
 
-	term.setCursorPos(24, 16)
+	term.setCursorPos(24+(termWidth-51)/2, 16)
 	write("Exit")
 
 	term.setTextColor(colors.yellow)
-	term.setCursorPos(1, 19)
-	write("Copyright (c) 2018 Xelostar")
+	term.setCursorPos(1, termHeight)
+	write("Copyright (c) 2022 Xella")
 end
 
 local function drawSettings()
@@ -1082,57 +1163,63 @@ local function settingsMenu()
 			write(" ")
 		end
 
-		local event, key = os.pullEventRaw("key")
-		if (key == keys.w or key == keys.up) then
-			selected2 = (selected2 - 1 + 4) % 4
-		elseif (key == keys.s or key == keys.down) then
-			selected2 = (selected2 + 1) % 4
-		elseif (key == keys.space or key == keys.enter) then
-			if (selected2 == 0) then
-				changeName()
-				drawSettings()
-			elseif (selected2 == 1) then
-				if (submitScore == "true") then
-					submitScore = "false"
-				else
-					submitScore = "true"
-				end
+		local event, key = os.pullEvent()
+		if event == "key" then
+			if (key == keys.w or key == keys.up) then
+				selected2 = (selected2 - 1 + 4) % 4
+			elseif (key == keys.s or key == keys.down) then
+				selected2 = (selected2 + 1) % 4
+			elseif (key == keys.space or key == keys.enter) then
+				if (selected2 == 0) then
+					changeName()
+					drawSettings()
+				elseif (selected2 == 1) then
+					if (submitScore == "true") then
+						submitScore = "false"
+					else
+						submitScore = "true"
+					end
 
-				term.setCursorPos(4, 6)
-				term.setTextColor(colors.yellow)
-				write("Submit score | ")
-				if (submitScore == "true") then
-					term.setTextColor(colors.lime)
-					write("Enabled ")
-				else
-					term.setTextColor(colors.red)
-					write("Disabled")
-				end
-			elseif (selected2 == 2) then
-				if (graphics == "Good") then
-					graphics = "Bad"
-					blittleOn = false
-					ThreeDFrame:useBLittle(blittleOn)
-				else
-					graphics = "Good"
-					blittleOn = true
-					ThreeDFrame:useBLittle(blittleOn)
-				end
+					term.setCursorPos(4, 6)
+					term.setTextColor(colors.yellow)
+					write("Submit score | ")
+					if (submitScore == "true") then
+						term.setTextColor(colors.lime)
+						write("Enabled ")
+					else
+						term.setTextColor(colors.red)
+						write("Disabled")
+					end
+				elseif (selected2 == 2) then
+					if (graphics == "Good") then
+						graphics = "Bad"
+						blittleOn = false
+						ThreeDFrame:highResMode(blittleOn)
+					else
+						graphics = "Good"
+						blittleOn = true
+						ThreeDFrame:highResMode(blittleOn)
+					end
 
-				term.setCursorPos(4, 8)
-				term.setTextColor(colors.yellow)
-				write("Graphics | ")
-				if (graphics == "Good") then
-					term.setTextColor(colors.lime)
-				else
-					term.setTextColor(colors.red)
+					term.setCursorPos(4, 8)
+					term.setTextColor(colors.yellow)
+					write("Graphics | ")
+					if (graphics == "Good") then
+						term.setTextColor(colors.lime)
+					else
+						term.setTextColor(colors.red)
+					end
+					write(graphics.." ")
+				elseif (selected2 == 3) then
+					break
 				end
-				write(graphics.." ")
-			elseif (selected2 == 3) then
-				break
 			end
+		elseif event == "term_resize" then
+			termWidth, termHeight = term.getSize()
+			ThreeDFrame:setSize(1, 1, termWidth, termHeight)
+			drawSettings()
 		end
-	end	
+	end
 
 	saveSettings()
 end
@@ -1142,57 +1229,71 @@ local function mainMenu()
 	selected = 0
 	while true do
 		term.setTextColor(colors.yellow)
-		term.setCursorPos(19, 10)
+		term.setCursorPos(19+(termWidth-51)/2, 10)
 		if (selected == 0) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(15, 12)
+		term.setCursorPos(15+(termWidth-51)/2, 12)
 		if (selected == 1) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(20, 14)
+		term.setCursorPos(20+(termWidth-51)/2, 14)
 		if (selected == 2) then
 			write(">")
 		else
 			write(" ")
 		end
-		term.setCursorPos(22, 16)
+		term.setCursorPos(22+(termWidth-51)/2, 16)
 		if (selected == 3) then
 			write(">")
 		else
 			write(" ")
 		end
 
-		local event, key = os.pullEventRaw("key")
-		if (key == keys.w or key == keys.up) then
-			selected = (selected - 1 + 4) % 4
-		elseif (key == keys.s or key == keys.down) then
-			selected = (selected + 1) % 4
-		elseif (key == keys.space or key == keys.enter) then
-			if (selected == 0) then
-				newGame()
-			elseif (selected == 1) then
-				showHighscores()
-			elseif (selected == 2) then
-				settingsMenu()
-			elseif (selected == 3) then
-				term.setBackgroundColor(colors.black)
-				term.setTextColor(colors.yellow)
-				term.clear()
-				term.setCursorPos(14, 10)
-				write("Thanks for playing Doom!")
-				sleep(1)
-				term.clear()
-				term.setCursorPos(1, 1)
-				break
+		local event, key = os.pullEvent()
+		if event == "key" then
+			if (key == keys.w or key == keys.up) then
+				selected = (selected - 1 + 4) % 4
+			elseif (key == keys.s or key == keys.down) then
+				selected = (selected + 1) % 4
+			elseif (key == keys.space or key == keys.enter) then
+				if (selected == 0) then
+					newGame()
+				elseif (selected == 1) then
+					showHighscores()
+				elseif (selected == 2) then
+					settingsMenu()
+				elseif (selected == 3) then
+					term.setBackgroundColor(colors.black)
+					term.setTextColor(colors.yellow)
+					term.clear()
+					term.setCursorPos(14+(termWidth-51)/2, 10)
+					write("Thanks for playing Doom!")
+					sleep(1)
+					term.clear()
+					term.setCursorPos(1, 1)
+					break
+				end
+				drawMenu()
 			end
+		elseif event == "term_resize" then
+			termWidth, termHeight = term.getSize()
+			ThreeDFrame:setSize(1, 1, termWidth, termHeight)
 			drawMenu()
 		end
 	end
 end
 
-mainMenu()
+local function resizing()
+	while true do
+		os.pullEvent("term_resize")
+		termWidth, termHeight = term.getSize()
+		ThreeDFrame:setSize(1, 1, termWidth, termHeight)
+	end
+end
+
+parallel.waitForAny(mainMenu, resizing)
