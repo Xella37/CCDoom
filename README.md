@@ -11,6 +11,7 @@ Install with: `pastebin run xLC8mABU`
 WASD \- movement  
 Arrow keys \- camera  
 SPACEBAR \- shoot
+LCTRL \- reset
 
 ## Media
 
